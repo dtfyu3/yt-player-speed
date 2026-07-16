@@ -1,15 +1,4 @@
-// ==UserScript==
-// @name         YouTube fixes
-// @namespace    http://tampermonkey.net
-// @version      1.0
-// @description:ru  Удаляет стеклянный эффект из меню настроек YouTube, вкладку shorts, устанавливает скорость воспроиздвения и выбирает лучшее качество и позволяет выбирать скорость воспроизведения выше 2x.
-// @description:en  Removes settings' glass effect, shorts from burger, setting default playback speed, pick highest available quality (maxQuality), allowing setting playback speed over 2x.
-// @match        https://youtube.com*
-// @grant        GM_addStyle
-// @run-at       document-start
-// @include      https://www.youtube.com/*
-// @icon         https://www.google.com/s2/favicons?sz=64&domain=youtube.com
-// ==/UserScript==
+
 
 class App {
     #shortsRemoved = false;
