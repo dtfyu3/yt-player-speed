@@ -1,3 +1,3 @@
 # yt-player-speed
 
-Removes settings' glass effect, shorts from burger, setting default playback speed, pick highest available quality (maxQuality), allowing setting playback speed over 2x.
+Removes settings' glass effect, shorts from burger, sets default playback speed, picks highest available quality (maxQuality), allows setting playback speed over 2x.
