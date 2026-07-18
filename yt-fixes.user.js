@@ -95,8 +95,8 @@ class App {
                 const targetRestoreSpeed = this.#oldSpeed || this.#targetSpeed;
                 if (video.playbackRate !== targetRestoreSpeed) {
                     this.#setPlayerSpeed(targetRestoreSpeed);
-                    this.#oldSpeed = null;
                 }
+                else this.#oldSpeed = null;
                 this.#updatePopupTextContent();
             }
         }, true);
