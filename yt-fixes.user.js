@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net
 // @version      1.0
 // @description:ru  Удаляет стеклянный эффект из меню настроек YouTube, вкладку shorts, устанавливает скорость воспроиздвения и выбирает лучшее качество и позволяет выбирать скорость воспроизведения выше 2x.
-// @description:en  Removes settings' glass effect, shorts from burger, setting default playback speed, pick highest available quality (maxQuality), allowing setting playback speed over 2x.
+// @description:en  Removes settings' glass effect, shorts from burger, sets default playback speed, picks highest available quality (maxQuality), allows setting playback speed over 2x.
 // @match        https://youtube.com*
 // @grant        GM_addStyle
 // @run-at       document-start
@@ -24,6 +24,10 @@ class App {
     #currentUrl = '';
     #video;
     #maxSpeed = 4.0;
+    #oldSpeed = null;
+    #pressTimer = null;
+    #isLongPress = false;
+    #longPressSpeed = null;
 
     constructor(targetSpeed=1.5) {
         this.#targetSpeed = targetSpeed;
@@ -48,6 +52,109 @@ class App {
         }
         this.#observer = new MutationObserver(this._callback);
         this.#observer.observe(target, config);
+        this.#addDocumentListeners();
+    }
+
+    #addDocumentListeners(){
+        document.addEventListener('mousedown', (e) => {
+            if (e.button === 0 && e.target.matches('video')) {
+                this.#isLongPress = false;
+
+                if(!checkVideoElement) return;
+
+                this.#pressTimer = setTimeout(() => {
+                    this.#onPlayerLongPress(e);
+                }, 500);
+            }
+        }, true);
+
+        document.addEventListener('mouseup', (e) => {
+            if (e.isGeneratedByMyExtension) return;
+            if (this.#pressTimer) {
+                clearTimeout(this.#pressTimer);
+                this.#pressTimer = null;
+            }
+
+            if (this.#isLongPress) {
+                e.stopImmediatePropagation();
+                e.preventDefault();
+                const video = document.querySelector('video');
+                if (video) {
+                    this.#onPlayerLongPressEnd();
+                }
+            }
+        }, true);
+
+        document.addEventListener('ratechange', (e) => {
+            const video = e.target;
+            console.log(video.playbackRate);
+            if (this.#isLongPress && video && this.#longPressSpeed && video.playbackRate !== this.#longPressSpeed) {
+                this.#setPlayerSpeed(this.#longPressSpeed);
+            }
+            if (!this.#isLongPress && this.#oldSpeed !== null) {
+                const targetRestoreSpeed = this.#oldSpeed || this.#targetSpeed;
+                if (video.playbackRate !== targetRestoreSpeed) {
+                    this.#setPlayerSpeed(targetRestoreSpeed);
+                    this.#oldSpeed = null;
+                }
+                this.#updatePopupTextContent();
+            }
+        }, true);
+
+        function checkVideoElement(){
+            if(!this.#player) this.#player = document.getElementById('movie_player');
+            if(!this.#video) this.#video = this.#player.querySelector('video');
+            if (!this.#video) return false;
+            return true;
+        }
+
+    }
+
+    #onPlayerLongPress(e){
+        this.#isLongPress = true;
+        console.log("Player long press detected");
+        const newSpeed = Math.min(Math.ceil(this.#video.playbackRate), this.#maxSpeed);
+        this.#longPressSpeed = newSpeed;
+        this.#setPlayerSpeed(newSpeed, true);
+        const overlay = document.querySelector('.ytp-speedmaster-overlay');
+        const overlaySpeedLabel = document.querySelector('.ytp-speedmaster-label');
+        if(overlaySpeedLabel) overlaySpeedLabel.textContent = `${newSpeed}x`;
+    }
+
+    #onPlayerLongPressEnd(){
+        this.#isLongPress = false;
+        this.#longPressSpeed = null;
+        console.log("Player long press ended");
+        this.#setPlayerSpeed(this.#oldSpeed || this.#targetSpeed);
+
+        //overlay restore
+        const overlay = document.querySelector('.ytp-speedmaster-overlay');
+        if (overlay) overlay.style.display = 'none';
+
+
+
+       //player focus restore
+        const player = this.#player || document.getElementById('movie_player');
+        if (player) {
+            const customMouseUp = new MouseEvent('mouseup', {
+                bubbles: true,
+                cancelable: true,
+                button: 0
+            });
+            customMouseUp.isGeneratedByMyExtension = true;
+            
+            const customPointerUp = new PointerEvent('pointerup', {
+                bubbles: true,
+                cancelable: true,
+                button: 0,
+                pointerType: 'mouse'
+            });
+            customPointerUp.isGeneratedByMyExtension = true;
+            
+            player.dispatchEvent(customPointerUp);
+            player.dispatchEvent(customMouseUp);
+        }
+
     }
 
     #initPlayerObserver(){
@@ -75,7 +182,6 @@ class App {
                     if (!this.#speedPanelOpening && !qualityMenu) { //basic settings
                         this._updatePopupDebounced();
                     }
-
                 }
                 else if (mutation.type === 'attributes' && mutation.target.matches('.ytp-popup.ytp-settings-menu')){
                     this._settingsButtonDebounced(mutation.target);
@@ -116,14 +222,19 @@ class App {
         if (!slider) return;
         const span = e.currentTarget.querySelector('span');
         this.#setPlayerSpeed(span.textContent === "+" ? this.#video.playbackRate + 0.05 : this.#video.playbackRate - 0.05);
+
     }
 
-    #setPlayerSpeed(value){
+    #setPlayerSpeed(value,isLongPress=false){
         if (!this.#player) this.#player = document.getElementById('movie_player');
-        if(!this.video) this.#video = this.#player.querySelector('video');
-        this.#video.playbackRate = +value;
+        if(!this.#video) this.#video = this.#player.querySelector('video');
+        this.#oldSpeed = (this.#isLongPress && !this.#oldSpeed) ? this.#video.playbackRate : this.#oldSpeed;
+        this.#video.playbackRate = (+value).toFixed(2);
+
         const popup = document.querySelector('.ytp-popup.ytp-settings-menu');
+        if(!popup) return;
         const slider = popup.querySelector('input.ytp-input-slider');
+        if(!slider) return;
         this.#updateSlider(slider, value);
     }
     #updatePopupTextContent(){
@@ -170,15 +281,15 @@ class App {
         slider.ariaValueMax = slider.max;
         const percent = (((slider.value - slider.min)/ (slider.max - slider.min)) * 100).toFixed(4);
         slider.style = `--yt-slider-shape-gradient-percent: ${percent}%;`;
+        
+        //setting values based on current state
         this.#updateSlider(slider, this.#video.playbackRate);
-
         //removing listeners from + - buttons
         let changeSpeedButtons = popup.querySelectorAll('.ytp-variable-speed-panel-slider-container button');
         changeSpeedButtons = this.#clearAllListeners(...changeSpeedButtons);
         changeSpeedButtons.forEach(b=>{b.addEventListener('click', this.#sliderButtonOnClick.bind(this))});
     }
     #executor() {
-
         const url = window.location.href;
         if (url !== this.#currentUrl) {
             this.#currentUrl = url;
@@ -186,7 +297,6 @@ class App {
             this.#speedChanged = false;
             this.#qualityChanged = false;
         }
-
         if (!this.#shortsRemoved) this.#shortsRemoved = this.#removeShorts();
         if (!this.#speedChanged) this.#speedChanged = this.#changePlaybackSpeed();
         if (!this.#qualityChanged) this.#qualityChanged = this.#changeQuality();
@@ -213,6 +323,7 @@ class App {
         if (!video || !video.src || video.readyState === 0) return false;
         this.#player = player;
         this.#player.setPlaybackRate(this.#targetSpeed);
+        console.log(+this.#targetSpeed);
         this.#video = this.#player.querySelector('video');
         this.#initPlayerObserver(); //when player is present it will have controls
         return true;
@@ -233,19 +344,18 @@ class App {
                 highestQuality = availableQuailities.find(q=>+q.qualityLabel.split('p')[0] <= this.#maxQuality);
             }
             this.#player.setPlaybackQualityRange(highestQuality.quality);
+
         }
         catch(e){
             console.log(e);
             return false;
         }
         return true;
-
     }
 }
 
 (function() {
     'use strict';
-
     const css = `
         .ytp-popup.ytp-settings-menu {
             background: rgba(28, 28, 28, 1) none repeat scroll 0% 0% / auto padding-box border-box !important;
@@ -269,8 +379,6 @@ class App {
         style.textContent = css;
         (document.head || document.documentElement).appendChild(style);
     }
-
-    console.log('Стили для меню настроек успешно применены.');
     const app = new App();
 })();
 
