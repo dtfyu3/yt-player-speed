@@ -28,6 +28,7 @@ class App {
     #pressTimer = null;
     #isLongPress = false;
     #longPressSpeed = null;
+    #wasPausedOnStart = false;
 
     constructor(targetSpeed=1.5) {
         this.#targetSpeed = targetSpeed;
@@ -61,7 +62,7 @@ class App {
                 this.#isLongPress = false;
 
                 if(!checkVideoElement) return;
-
+                this.#wasPausedOnStart = this.#video.paused;
                 this.#pressTimer = setTimeout(() => {
                     this.#onPlayerLongPress(e);
                 }, 500);
@@ -69,21 +70,55 @@ class App {
         }, true);
 
         document.addEventListener('mouseup', (e) => {
+
             if (e.isGeneratedByMyExtension) return;
-            if (this.#pressTimer) {
-                clearTimeout(this.#pressTimer);
-                this.#pressTimer = null;
-            }
+            this.#clearPressTimer();
 
             if (this.#isLongPress) {
                 e.stopImmediatePropagation();
                 e.preventDefault();
                 const video = document.querySelector('video');
                 if (video) {
-                    this.#onPlayerLongPressEnd();
+                    this.#onPlayerLongPressEnd('mouse');
                 }
             }
         }, true);
+
+
+        document.addEventListener('keydown', (e) => {
+            if (e.repeat || e.code !== 'Space') return;
+            const activeEl = document.activeElement;
+            if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
+                return;
+            }
+
+            this.#isLongPress = false;
+            if (!checkVideoElement) return;
+            e.preventDefault();
+            this.#pressTimer = setTimeout(() => {
+
+                if(!this.#video) this.#video = document.querySelector('video');
+                this.#wasPausedOnStart = this.#video.paused; //saving state to reset after long press end
+                if(this.#wasPausedOnStart) this.#video.play().catch(err => console.log("Couldn't start video:", err));
+
+                this.#onPlayerLongPress(e);
+            }, 500);
+        }, true);
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code !== 'Space') return;
+            this.#clearPressTimer();
+
+            if (this.#isLongPress) {
+                e.stopImmediatePropagation();
+                e.preventDefault();
+
+                if (document.querySelector('video')) {
+                    this.#onPlayerLongPressEnd('keyboard');
+                }
+            }
+        }, true);
+
 
         document.addEventListener('ratechange', (e) => {
             const video = e.target;
@@ -93,6 +128,7 @@ class App {
             }
             if (!this.#isLongPress && this.#oldSpeed !== null) {
                 const targetRestoreSpeed = this.#oldSpeed || this.#targetSpeed;
+
                 if (video.playbackRate !== targetRestoreSpeed) {
                     this.#setPlayerSpeed(targetRestoreSpeed);
                 }
@@ -107,21 +143,28 @@ class App {
             if (!this.#video) return false;
             return true;
         }
-
     }
 
+    #clearPressTimer() {
+        if (this.#pressTimer) {
+            clearTimeout(this.#pressTimer);
+            this.#pressTimer = null;
+        }
+    }
     #onPlayerLongPress(e){
         this.#isLongPress = true;
         console.log("Player long press detected");
-        const newSpeed = Math.min(Math.ceil(this.#video.playbackRate), this.#maxSpeed);
+        const newSpeed = Math.min(Math.ceil(this.#video.playbackRate + 0.05), this.#maxSpeed);
         this.#longPressSpeed = newSpeed;
         this.#setPlayerSpeed(newSpeed, true);
+
         const overlay = document.querySelector('.ytp-speedmaster-overlay');
+        if(overlay.style.display === 'none') overlay.style.display = '';
         const overlaySpeedLabel = document.querySelector('.ytp-speedmaster-label');
         if(overlaySpeedLabel) overlaySpeedLabel.textContent = `${newSpeed}x`;
     }
 
-    #onPlayerLongPressEnd(){
+    #onPlayerLongPressEnd(triggerType='mouse'){
         this.#isLongPress = false;
         this.#longPressSpeed = null;
         console.log("Player long press ended");
@@ -130,30 +173,33 @@ class App {
         //overlay restore
         const overlay = document.querySelector('.ytp-speedmaster-overlay');
         if (overlay) overlay.style.display = 'none';
-
-
-
-       //player focus restore
-        const player = this.#player || document.getElementById('movie_player');
-        if (player) {
-            const customMouseUp = new MouseEvent('mouseup', {
-                bubbles: true,
-                cancelable: true,
-                button: 0
-            });
-            customMouseUp.isGeneratedByMyExtension = true;
-            
-            const customPointerUp = new PointerEvent('pointerup', {
-                bubbles: true,
-                cancelable: true,
-                button: 0,
-                pointerType: 'mouse'
-            });
-            customPointerUp.isGeneratedByMyExtension = true;
-            
-            player.dispatchEvent(customPointerUp);
-            player.dispatchEvent(customMouseUp);
+        if (this.#video && this.#wasPausedOnStart) {
+            this.#video.pause();
         }
+        this.#wasPausedOnStart = false;
+        if(triggerType === 'mouse')
+        {
+            const player = this.#player || document.getElementById('movie_player');
+            if (player) {
+                const customMouseUp = new MouseEvent('mouseup', {
+                    bubbles: true,
+                    cancelable: true,
+                    button: 0
+                });
+                customMouseUp.isGeneratedByMyExtension = true;
+
+                const customPointerUp = new PointerEvent('pointerup', {
+                    bubbles: true,
+                    cancelable: true,
+                    button: 0,
+                    pointerType: 'mouse'
+                });
+                customPointerUp.isGeneratedByMyExtension = true;
+                player.dispatchEvent(customPointerUp);
+                player.dispatchEvent(customMouseUp);
+            }
+        }
+
 
     }
 
@@ -214,6 +260,7 @@ class App {
     }
     #sliderOnInput(e){
         this.#setPlayerSpeed(e.target.value);
+
     }
 
     #sliderButtonOnClick(e){
@@ -233,6 +280,7 @@ class App {
 
         const popup = document.querySelector('.ytp-popup.ytp-settings-menu');
         if(!popup) return;
+        this.#updatePopupTextContent();
         const slider = popup.querySelector('input.ytp-input-slider');
         if(!slider) return;
         this.#updateSlider(slider, value);
@@ -244,6 +292,7 @@ class App {
         const parent = popup.parentElement;
         if(!speedMenu) return;
         speedMenu.querySelector('.ytp-menuitem-content').textContent = +this.#video.playbackRate.toFixed(2);
+
     }
     #updateSlider(slider, value){
         const newValue = +value;
@@ -257,20 +306,19 @@ class App {
     }
 
     #fixSpeedPanel(popup){
-        const chips = document.querySelector('.ytp-variable-speed-panel-chips');
+        let chips = document.querySelector('.ytp-variable-speed-panel-chips');
         if (!chips) return;
-        const buttons = chips.querySelectorAll('.ytp-variable-speed-panel-preset-button-wrapper button');
+        let buttons = chips.querySelectorAll('.ytp-variable-speed-panel-preset-button-wrapper button');
         const index = [...buttons].findIndex(b=>b.textContent === '3,0'); //yotube premium promo button
-        if(index > 0) buttons[index].remove();
+        if(index > 0) {
+            buttons[index].parentElement.remove();
+        }
+        chips = this.#addButtons(popup, chips);
+        buttons = chips.querySelectorAll('.ytp-variable-speed-panel-preset-button-wrapper button');
         [...buttons].forEach(b=>{
-            b.hidden = false;
             [b] = this.#clearAllListeners(b);
             b.addEventListener('click', this.#speedButtonClick.bind(this));
-            const parent = b.parentElement;
-            if (parent){
-                parent.ariaHidden = false;
-                parent.style.display = '';
-            }
+
         });
         let slider = popup.querySelector('input.ytp-input-slider');
         //removing listeners from slider
@@ -281,15 +329,48 @@ class App {
         slider.ariaValueMax = slider.max;
         const percent = (((slider.value - slider.min)/ (slider.max - slider.min)) * 100).toFixed(4);
         slider.style = `--yt-slider-shape-gradient-percent: ${percent}%;`;
-        
-        //setting values based on current state
         this.#updateSlider(slider, this.#video.playbackRate);
+
         //removing listeners from + - buttons
         let changeSpeedButtons = popup.querySelectorAll('.ytp-variable-speed-panel-slider-container button');
         changeSpeedButtons = this.#clearAllListeners(...changeSpeedButtons);
         changeSpeedButtons.forEach(b=>{b.addEventListener('click', this.#sliderButtonOnClick.bind(this))});
     }
+
+    #addButtons(popup, chips){
+        const panel = popup.querySelector('.ytp-variable-speed-panel-content');
+        let panelWidth = panel.offsetWidth;
+        const buttons = chips.querySelectorAll('.ytp-variable-speed-panel-preset-button-wrapper button');
+        [...buttons].forEach(b=>{
+            b.hidden = false;
+            const parent = b.parentElement;
+            if (parent){
+                parent.ariaHidden = false;
+                parent.style.display = '';
+            }
+        });
+
+
+        const borders = +getComputedStyle(panel).paddingLeft.split('px')[0] + +getComputedStyle(panel).paddingRight.split('px')[0];
+        panelWidth -= borders;
+        const buttonWidth = chips.querySelector('button').offsetWidth;
+        chips.style.width = 'max-content';
+        const realChipsWidth = chips.offsetWidth;
+        if(panelWidth - realChipsWidth >= buttonWidth){
+            let newSpeed;
+            const lastButtonSpeed = +buttons[buttons.length-1].textContent.replace(',','.');
+            if(this.#maxSpeed - lastButtonSpeed < 1) newSpeed = this.#maxSpeed;
+            else if (this.#maxSpeed - lastButtonSpeed >= 1 && this.#maxSpeed - lastButtonSpeed < 2) newSpeed = lastButtonSpeed + 0.5;
+            else newSpeed = lastButtonSpeed + 1;
+            newSpeed = newSpeed.toFixed(1);
+            const buttonToAdd = buttons[1].parentElement.cloneNode(true);
+            buttonToAdd.querySelector('button').textContent = newSpeed.replace('.',',');
+            chips.appendChild(buttonToAdd);
+        }
+        return chips;
+    }
     #executor() {
+
         const url = window.location.href;
         if (url !== this.#currentUrl) {
             this.#currentUrl = url;
@@ -297,11 +378,12 @@ class App {
             this.#speedChanged = false;
             this.#qualityChanged = false;
         }
+
         if (!this.#shortsRemoved) this.#shortsRemoved = this.#removeShorts();
         if (!this.#speedChanged) this.#speedChanged = this.#changePlaybackSpeed();
         if (!this.#qualityChanged) this.#qualityChanged = this.#changeQuality();
     }
-
+    
     #debounce(func, timeout) {
         let timer;
         return (...args) => {
@@ -309,6 +391,7 @@ class App {
             timer = setTimeout(() => { func.apply(this, args); }, timeout);
         };
     }
+    
     #removeShorts() {
         const shorts = document.querySelector('#items a[title="Shorts"]');
         if (!shorts) return false;
@@ -351,11 +434,13 @@ class App {
             return false;
         }
         return true;
+
     }
 }
 
 (function() {
     'use strict';
+
     const css = `
         .ytp-popup.ytp-settings-menu {
             background: rgba(28, 28, 28, 1) none repeat scroll 0% 0% / auto padding-box border-box !important;
@@ -379,6 +464,7 @@ class App {
         style.textContent = css;
         (document.head || document.documentElement).appendChild(style);
     }
+    console.log('Стили для меню настроек успешно применены.');
     const app = new App();
 })();
 
