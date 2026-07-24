@@ -36,6 +36,7 @@ class App {
     }
 
     #init() {
+        this.#addWindowURLEventListener();
         const target = document;
         const config = {
             attributes: false,
@@ -56,6 +57,32 @@ class App {
         this.#addDocumentListeners();
     }
 
+#addWindowURLEventListener(){
+        if (window.navigation){
+
+            window.navigation.addEventListener('navigate', (e) => {
+                console.log('url changed');
+                this.#resetState();
+            });}
+
+        else{
+            window.addEventListener('popstate', () => {
+                console.log('url changed');
+                this.#resetState();});
+            window.addEventListener('hashchange', () => {
+                this.#resetState();
+                console.log('url changed')
+            });
+        }
+
+    }
+        #resetState(){
+        this.#shortsRemoved = false;
+        this.#speedChanged = false;
+        this.#qualityChanged = false;
+
+    }
+    
     #addDocumentListeners(){
         document.addEventListener('mousedown', (e) => {
             if (e.button === 0 && e.target.matches('video')) {
@@ -372,13 +399,6 @@ class App {
     #executor() {
 
         const url = window.location.href;
-        if (url !== this.#currentUrl) {
-            this.#currentUrl = url;
-            this.#shortsRemoved = false;
-            this.#speedChanged = false;
-            this.#qualityChanged = false;
-        }
-
         if (!this.#shortsRemoved) this.#shortsRemoved = this.#removeShorts();
         if (!this.#speedChanged) this.#speedChanged = this.#changePlaybackSpeed();
         if (!this.#qualityChanged) this.#qualityChanged = this.#changeQuality();
